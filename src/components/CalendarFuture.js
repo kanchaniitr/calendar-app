@@ -1,9 +1,46 @@
 import "./Calendar.css";
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, format, isSameWeek, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
 
 function isHoliday(day) {
     return day % 4 == 0;
+}
+
+//const axios = require('axios');
+
+/**
+ * Given a search term, returns the most relevant Wikipedia page URL.
+ */
+async function getWikipediaSmartLink(searchTerm) {
+  const apiUrl = 'https://en.wikipedia.org/w/api.php';
+  const params = {
+    action: 'query',
+    format: 'json',
+    generator: 'search',
+    gsrlimit: 1,
+    gsrsearch: searchTerm,
+    prop: 'info',
+    inprop: 'url',
+    redirects: '' // Automatically follow redirects
+  };
+
+  try {
+    const response = await axios.get(apiUrl, { params });
+    const pages = response.data.query?.pages;
+    if (!pages) {
+      //console.log('No matching pages found.');
+      return null;
+    }
+
+    const page = Object.values(pages)[0];
+    //console.log(`Best match: ${page.title}`);
+    //console.log(`URL: https://en.wikipedia.org/wiki/${encodeURIComponent(page.title)}`);
+    return `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title)}`;
+  } catch (err) {
+    //console.error('Error fetching Wikipedia link:', err.message);
+    return null;
+  }
 }
 
 const Calendar = () => {
@@ -22,6 +59,8 @@ const Calendar = () => {
   const [error, setError] = useState(null);
   const [selectedView, setSelectedView] = useState('');
   const [holidayValues, setHolidayValues] = useState([]);
+  const [weekCellColorMap, setWeekCellColorMap] = useState(new Map());
+  const [holidayMapToPublish, setHolidayMapToPublish] = useState(new Map());
   const [fetching, setFetching] = useState(true);
   const [fetchingError, setFetchingError] = useState(null);
 
@@ -50,8 +89,54 @@ const Calendar = () => {
     }
 
     useEffect(() => {
-        console.log("Updated holidays : " + holidayValues);
+        const setMapValues = async () => {
+            console.log("Updated holidays : " + holidayValues);
+
+            let colorMap = new Map(holidayValues.map(holiday => [holiday.date, holiday.cellColorScheme]));
+            setWeekCellColorMap(colorMap);
+
+            let holidayList = new Map();
+              for (let hdl of holidayValues.values()) {
+                  for (let hd of hdl.holidays) {
+                      let hdDate = hd.date;
+                      let hdMap = new Map();
+                      for (let hdName of hd.names) {
+                        getWikipediaSmartLink(hdName).then(link => {
+                            hdMap.set(hdName, link);
+                        });
+                      }
+                      holidayList.set(hdDate, hdMap);
+                  }
+              }
+            setHolidayMapToPublish(holidayList);
+        }
+        setMapValues();
     }, [holidayValues]);
+
+    useEffect(() => {
+        console.log("Updated weekCellColorMap : " + weekCellColorMap);
+        /*const holidayNameMapFunc = () => {
+              const holidayList = new Map();
+              for (let hdl of holidayValues.values()) {
+                  for (let hd of hdl.holidays) {
+                      let hdDate = hd.date;
+                      let hdMap = new Map();
+                      for (let hdName of hd.names) {
+                        getWikipediaSmartLink(hdName).then(link => {
+                            hdMap.set(hdName, link);
+                        });
+                      }
+                      holidayList.set(hdDate, hdMap);
+                  }
+              }
+              setHolidayMapToPublish(holidayList);
+          };
+        holidayNameMapFunc();*/
+    }, [weekCellColorMap]);
+
+    useEffect(() => {
+        console.log("Updated holidayMapToPublish : " + holidayMapToPublish);
+    }, [holidayMapToPublish]);
 
     useEffect(() => {
     const fetchHolidays = async () => {
@@ -62,12 +147,30 @@ const Calendar = () => {
             let startDate = format(startOfWeek(validMonths[0]), hdDateFormat);
             let endDate = format(endOfWeek(endOfMonth(validMonths[validMonths.length - 1])), hdDateFormat);
             try {
-                const response = await fetch(`http://localhost:8080/holidays?country=${selectedCountry}&countryCode=${countryCode}&startDate=${startDate}&endDate=${endDate}`);
+                const response = await fetch(`http://localhost:8080/holidays?startDate=${startDate}&countryCode=${countryCode}&endDate=${endDate}`);
                 if (!response.ok) {
                   throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 const data = await response.json();
                 setHolidayValues(data);
+
+                /*let colorMap = new Map(data.map(holiday => [holiday.date, holiday.cellColorScheme]));
+                setWeekCellColorMap(colorMap);
+
+                let holidayList = new Map();
+                  for (let hdl of holidayValues.values()) {
+                      for (let hd of hdl.holidays) {
+                          let hdDate = hd.date;
+                          let hdMap = new Map();
+                          for (let hdName of hd.names) {
+                            getWikipediaSmartLink(hdName).then(link => {
+                                hdMap.set(hdName, link);
+                            });
+                          }
+                          holidayList.set(hdDate, hdMap);
+                      }
+                  }
+                setHolidayMapToPublish(holidayList);*/
             } catch (error) {
                 setFetchingError(error);
             } finally {
@@ -75,6 +178,7 @@ const Calendar = () => {
             }
         }
     };
+
     fetchHolidays();
     }, [selectedCountry, selectedView, selectedYear, selectedMonth, selectedQuarter]);
 
@@ -266,17 +370,18 @@ const renderValidMonths = () => {
       return <div className="grid grid-cols-7">{days}</div>;
     };
 
-  const weekCellColorMapFunc = (holidayValues) => {
+  /*const weekCellColorMapFunc = (holidayValues) => {
     return new Map(holidayValues.map(holiday => [holiday.date, holiday.cellColorScheme]));
-  }
+  }*/
 
-  const holidayNameMapFunc = (holidayValues) => {
-      let holidayList = new Map();
-      for (let hdl of holidayValues.values()) {
-          for (let hd of hdl.holidays) {
-              holidayList.set(hd.date, hd.names);
-          }
-      }
+  const holidayNameMapFunc1 = (holidayValues) => {
+      console.log("fetching holiday map to build link");
+      const holidayList = new Map();
+        for (let hdl of holidayValues.values()) {
+            for (let hd of hdl.holidays) {
+                holidayList.set(hd.date, hd.name);
+            }
+        }
       return holidayList;
   }
 
@@ -301,8 +406,8 @@ const renderValidMonths = () => {
     let formattedDate = "";
     let hdFormattedDate = "";
 
-    let weekCellColorMap = weekCellColorMapFunc(holidayValues);
-    let holidayMapToPublish = holidayNameMapFunc(holidayValues);
+    //let weekCellColorMap = weekCellColorMapFunc(holidayValues);
+    let holidayMap = holidayNameMapFunc1(holidayValues);
 
     while (day <= endDate) {
       hdFormattedDate = format(day, hdFormat);
@@ -333,21 +438,49 @@ const renderValidMonths = () => {
       );
       days = [];
     }
+
+
     // rendering holiday List
     const renderHDTable = () => {
         let hdRows = [];
-        let hdNameLink = [];
-        for(const [hdDate, hdNameWikiMap] of holidayMapToPublish) {
+        /*for (let hdl of holidayValues.values()) {
+          for (let hd of hdl.holidays) {
+              let hdDate = hd.date;
+              let hdNameLink = [];
+              let nameKey = "";
+              let comma = ""
+              for (let hdName of hd.names) {
+                getWikipediaSmartLink(hdName).then(link => {
+                    nameKey = nameKey + hdName;
+                    console.log("Adding " + hdName + " with wiki link: " + link);
+                    hdNameLink.push(<a href={`${link}`} target="_blank" rel="noopener noreferrer">
+                    {hdName}
+                    </a> )
+                    comma = ", ";
+                });
+              }
+                hdRows.push(
+                    <div className="holiday-cells">
+                        <div className="calendar-cell" key={hdDate}>{hdDate}</div>
+                        <div className="calendar-cell" key={nameKey}>{hdNameLink}</div>
+                    </div>
+                )
+              hdNameLink = [];
+          }
+        }*/
+        for(const [hdDate, hdName] of holidayMap) {
+            const hdNameLink = [];
             let nameKey = "";
-            let comma = "";
-            for (let hdNameWiki of hdNameWikiMap) {
-                let hdName = hdNameWiki.name;
-                nameKey = nameKey + hdName;
-                let wikiToken = hdNameWiki.wikiToken;
-                hdNameLink.push( <ul><a href={`https://en.wikipedia.org/wiki/${wikiToken}`} target="_blank" rel="noopener noreferrer">
-                  {hdName}
-                </a></ul> )
-                comma = ", ";
+            let comma = ""
+            for(let hdN of hdName.split(", ")) {
+                getWikipediaSmartLink(hdN).then(link => {
+                  if (link) {
+                    console.log("wiki link for " + hdN +" : " + link);
+                    hdNameLink.push( <a href={`${link}`} target="_blank" rel="noopener noreferrer">
+                      {hdN}
+                    </a> )
+                  }
+                });
             }
             hdRows.push(
                 <div className="holiday-cells">
@@ -355,8 +488,18 @@ const renderValidMonths = () => {
                     <div className="calendar-cell" key={nameKey}>{hdNameLink}</div>
                 </div>
             )
-            hdNameLink = [];
+            //hdNameLink = [];
         }
+        //debugger;
+        //holidayMapToPublish = new Map();
+        /*{[...holidayMapToPublish.entries()].map(([hdDate, hdName]) => (
+            hdRows.push(
+                <div className="holiday-cells">
+                    <div className="calendar-cell" key={hdDate}>{hdDate}</div>
+                    <div className="calendar-cell" key={hdName}>{hdNameLink}</div>
+                </div>
+            )
+        ))}*/
         return (
             <>
                 { hdRows.length > 0 ? (

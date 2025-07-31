@@ -37,6 +37,20 @@
   text-align: center;
 }
 
+.holiday-header {
+    display: grid;
+    text-align: center;
+    background-color: #AEF7BF;
+}
+
+.holiday-cells {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  text-align: center;
+  align-items: center;
+  background-color: #ECFFEF;
+}
+
 .calendar-day-name {
   font-weight: 600;
   padding: 12px 0;
